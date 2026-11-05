@@ -321,3 +321,75 @@
         },
         () => {
           status.textContent = 'Доступ к геолокации запрещён. Включаем демо-режим.
+      setDemoLocation();
+    });
+  }
+}
+
+function setDemoLocation() {
+  // Для демо ставим случайную точку на текущем этаже (в процентах)
+  const floor = floorsData[currentFloor];
+  const randomNode = floor.nodes[Math.floor(Math.random() * floor.nodes.length)];
+  userPos = {
+    x: randomNode.x + (Math.random() - 0.5) * 15, // ±7.5% от узла
+    y: randomNode.y + (Math.random() - 0.5) * 15
+  };
+  // Ограничиваем в пределах 0–100
+  userPos.x = Math.max(0, Math.min(100, userPos.x));
+  userPos.y = Math.max(0, Math.min(100, userPos.y));
+
+  updateUserMarker();
+  status.textContent = `Ваше местоположение установлено (демо-режим).`;
+}
+
+function updateUserMarker() {
+  if (!userPos) return;
+  userMarker.style.left = userPos.x + '%';
+  userMarker.style.top = userPos.y + '%';
+  userMarker.style.display = 'block';
+}
+
+function clearRoute() {
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+}
+
+function drawRoute(nodes) {
+  clearRoute();
+  if (nodes.length < 2) return;
+
+  // Получаем реальные размеры канваса после рендера картинки
+  const mapW = canvas.width = canvas.parentElement.clientWidth;
+  const mapH = canvas.height = canvas.parentElement.offsetHeight;
+
+  ctx.strokeStyle = '#e74c3c';
+  ctx.lineWidth = 4;
+  ctx.setLineDash([10, 5]); // пунктир
+
+  ctx.beginPath();
+  nodes.forEach((node, i) => {
+    const px = (node.x / 100) * mapW;
+    const py = (node.y / 100) * mapH;
+    if (i === 0) {
+      ctx.moveTo(px, py);
+    } else {
+      ctx.lineTo(px, py);
+    }
+  });
+  ctx.stroke();
+
+  // Рисуем точки на маршруте
+  ctx.fillStyle = '#e74c3c';
+  nodes.forEach(node => {
+    const px = (node.x / 100) * mapW;
+    const py = (node.y / 100) * mapH;
+    ctx.beginPath();
+    ctx.arc(px, py, 6, 0, Math.PI * 2);
+    ctx.fill();
+  });
+}
+
+// Запуск
+init();
+  </script>
+</body>
+</html>
