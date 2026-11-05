@@ -3,204 +3,297 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Карта школы: навигация по этажам</title>
+  <title>Карта школы: Умная навигация</title>
   <style>
-    body { margin: 0; padding: 0; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #f0f2f5; }
+    body { margin: 0; padding: 0; font-family: 'Segoe UI', sans-serif; background: #f0f2f5; }
     
     header {
       background: #2c3e50; color: white; padding: 15px 20px; display: flex; justify-content: space-between; align-items: center;
       box-shadow: 0 2px 5px rgba(0,0,0,0.2);
     }
-
     .controls { display: flex; gap: 10px; align-items: center; }
-    
-    select {
-      padding: 8px 12px; font-size: 16px; border-radius: 4px; border: none; cursor: pointer;
-    }
-    
-    button {
-      padding: 10px 20px; font-size: 14px; background: #e74c3c; color: white; border: none; border-radius: 4px; cursor: pointer;
-    }
+    select, input { padding: 8px 12px; font-size: 16px; border-radius: 4px; border: none; cursor: pointer; }
+    button { padding: 10px 20px; font-size: 14px; background: #e74c3c; color: white; border: none; border-radius: 4px; cursor: pointer; }
     button:hover { background: #c0392b; }
 
     #map-container {
       position: relative; width: 100%; max-width: 900px; margin: 20px auto;
-      background-color: #ddd; /* Цвет фона, если картинка не загрузилась */
-      overflow: hidden;
-      border-radius: 8px;
-      box-shadow: 0 4px 10px rgba(0,0,0,0.1);
+      background-color: #ddd; overflow: hidden; border-radius: 8px; box-shadow: 0 4px 10px rgba(0,0,0,0.1);
     }
 
-    #plan-image {
-      display: block; width: 100%; height: auto; image-rendering: pixelated; /* Чтобы пиксели не мылились */
+    /* Холст для отрисовки линий маршрутов */
+    canvas {
+      position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 5; pointer-events: none;
     }
+
+    #plan-image { display: block; width: 100%; height: auto; image-rendering: pixelated; z-index: 1; position: relative; }
 
     .marker {
-      position: absolute;
-      padding: 6px 10px;
-      font-size: 13px; font-weight: bold;
-      cursor: pointer;
-      border-radius: 4px;
-      transform: translate(-50%, -50%); /* Центрируем точку клика */
-      box-shadow: 0 2px 4px rgba(0,0,0,0.3);
-      color: #333;
-      transition: transform 0.2s;
+      position: absolute; padding: 6px 10px; font-size: 13px; font-weight: bold; cursor: pointer;
+      border-radius: 4px; transform: translate(-50%, -50%); box-shadow: 0 2px 4px rgba(0,0,0,0.3); color: #333; z-index: 10;
     }
-    .marker:hover { transform: translate(-50%, -50%) scale(1.1); z-index: 10; }
+    /* Цвета */
+    .type-class { background: rgba(52, 152, 219, 0.9); color: white; }
+    .type-sport { background: rgba(142, 68, 173, 0.9); color: white; }
+    .type-food { background: rgba(241, 196, 15, 0.9); color: #333; }
+    .type-lib { background: rgba(46, 204, 113, 0.9); color: white; }
+    .type-exit { background: rgba(230, 126, 34, 0.9); color: white; }
+    .type-stairs { background: rgba(95, 158, 160, 0.9); color: white; border: 2px dashed white; } /* Лестница */
 
-    /* Цвета маркеров по типу */
-    .type-class { background: rgba(52, 152, 219, 0.9); color: white; } /* Кабинет */
-    .type-sport { background: rgba(142, 68, 173, 0.9); color: white; }  /* Спортзал */
-    .type-food { background: rgba(241, 196, 15, 0.9); color: #333; }    /* Столовая */
-    .type-lib { background: rgba(46, 204, 113, 0.9); color: white; }     /* Библиотека */
-    .type-admin { background: rgba(189, 195, 199, 0.9); color: #333; }  /* Администрация */
-    .type-exit { background: rgba(230, 126, 34, 0.9); color: white; }   /* Выход */
+    .route-line {
+      stroke: #e74c3c; stroke-width: 4; fill: none; stroke-dasharray: 5,5; animation: dash 1s linear infinite;
+    }
+    @keyframes dash { to { stroke-dashoffset: -10; } }
 
     .user-location {
-      position: absolute;
-      width: 24px; height: 24px;
-      background: radial-gradient(circle, #e74c3c 0%, transparent 70%);
-      border: 2px solid white;
-      border-radius: 50%;
-      box-shadow: 0 0 10px #e74c3c;
-      z-index: 20;
-      top: 0; left: 0;
-      display: none;
+      position: absolute; width: 24px; height: 24px;
+      background: radial-gradient(circle, #e74c3c 0%, transparent 70%); border: 2px solid white;
+      border-radius: 50%; box-shadow: 0 0 10px #e74c3c; z-index: 20; display: none;
     }
-
+    
     .status-msg { margin-top: 10px; text-align: center; color: #555; font-style: italic; }
   </style>
 </head>
 <body>
 
   <header>
-    <h2>🗺 Карта школы</h2>
+    <h2>🗺 Карта школы: Навигация</h2>
     <div class="controls">
       <label for="floor-select" style="color:white; font-weight:bold;">Этаж:</label>
-      <!-- Опции соответствуют именам файлов картинок -->
       <select id="floor-select">
         <option value="plan_1.png">1 этаж</option>
         <option value="plan_2.png">2 этаж</option>
         <option value="plan_basement.png">Подвал</option>
       </select>
-      <button id="btn-gps">📍 Моё местоположение</button>
+      
+      <input type="text" id="start-input" placeholder="Откуда (кабинет)" list="all-nodes-list" style="width:150px;" />
+      <input type="text" id="end-input" placeholder="Куда (кабинет)" list="all-nodes-list" style="width:150px;" />
+      <button id="btn-route">🧭 Построить маршрут</button>
     </div>
   </header>
 
   <div id="map-container">
-    <!-- Сюда JS будет подгружать картинку плана -->
+    <canvas id="route-canvas"></canvas>
     <img id="plan-image" src="plan_1.png" alt="План этажа" />
-    
-    <!-- Контейнер для маркеров -->
     <div id="markers-layer"></div>
-
-    <!-- Маркер пользователя -->
     <div id="user-marker" class="user-location"></div>
   </div>
 
   <p id="status" class="status-msg"></p>
 
-  <script>
-    const img = document.getElementById('plan-image');
-    const markersLayer = document.getElementById('markers-layer');
-    const userMarker = document.getElementById('user-marker');
-    const floorSelect = document.getElementById('floor-select');
-    const status = document.getElementById('status');
-    const btnGps = document.getElementById('btn-gps');
+  <!-- Список всех точек для автодополнения -->
+  <datalist id="all-nodes-list">
+    <!-- Заполняется JS -->
+  </datalist>
 
-    // --- БАЗА ДАННЫХ МАРКЕРОВ (Для разных этажей) ---
-    // Координаты задаются в процентах от ширины/высоты картинки.
+  <script>
+    // --- КОНФИГУРАЦИЯ ГРАФА (Это сердце навигации) ---
+    // Каждая точка имеет: id, x, y (в %), type, label.
+    // Связи задаются ниже в edges.
     const floorsData = {
-      'plan_1.png': [
-        { type: 'class', x: 15, y: 25, text: 'Кабинет 101 (Математика)' },
-        { type: 'class', x: 30, y: 40, text: 'Кабинет 102 (Физика)' },
-        { type: 'food', x: 50, y: 60, text: 'Столовая' },
-        { type: 'exit', x: 85, y: 30, text: 'Запасной выход' },
-        { type: 'admin', x: 20, y: 75, text: 'Секретариат' }
-      ],
-      'plan_2.png': [
-        { type: 'lib', x: 45, y: 35, text: 'Библиотека' },
-        { type: 'class', x: 60, y: 55, text: 'Кабинет 205 (Информатика)' },
-        { type: 'sport', x: 25, y: 80, text: 'Спортзал' },
-        { type: 'class', x: 75, y: 20, text: 'Кабинет директора' },
-        { type: 'exit', x: 90, y: 70, text: 'Лестница на 1 этаж' }
-      ],
-      'plan_basement.png': [
-        { type: 'admin', x: 30, y: 30, text: 'Тех. помещение' },
-        { type: 'food', x: 50, y: 50, text: 'Буфет' },
-        { type: 'sport', x: 70, y: 70, text: 'Тренажерный зал' },
-        { type: 'exit', x: 10, y: 90, text: 'Вход в подвал' }
-      ]
+      'plan_1.png': {
+        nodes: [
+          { id: 'n1_1', x: 15, y: 25, type: 'class', label: 'Кабинет 101' },
+          { id: 'n1_2', x: 30, y: 40, type: 'class', label: 'Кабинет 102' },
+          { id: 'n1_3', x: 50, y: 60, type: 'food', label: 'Столовая' },
+          { id: 'n1_4', x: 85, y: 30, type: 'exit', label: 'Запасной выход' },
+          { id: 'stair_up_1', x: 70, y: 75, type: 'stairs', label: 'Лестница на 2 этаж' } // Точка перехода
+        ],
+        edges: [ // Соединения (коридоры)
+          ['n1_1', 'n1_2'],
+          ['n1_2', 'n1_3'],
+          ['n1_3', 'n1_4'],
+          ['n1_2', 'stair_up_1'], // Коридор к лестнице
+          ['stair_up_1', 'n1_3']  // Коридор от лестницы
+        ]
+      },
+      'plan_2.png': {
+        nodes: [
+          { id: 'n2_1', x: 45, y: 35, type: 'lib', label: 'Библиотека' },
+          { id: 'n2_2', x: 60, y: 55, type: 'class', label: 'Кабинет 205' },
+          { id: 'n2_3', x: 25, y: 80, type: 'sport', label: 'Спортзал' },
+          { id: 'stair_down_2', x: 70, y: 75, type: 'stairs', label: 'Лестница с 1 этажа' } // Точка входа
+        ],
+        edges: [
+          ['n2_1', 'n2_2'],
+          ['n2_2', 'n2_3'],
+          ['n2_2', 'stair_down_2']
+        ]
+      },
+      'plan_basement.png': {
+        nodes: [
+          { id: 'b1_1', x: 30, y: 30, type: 'admin', label: 'Тех. помещение' },
+          { id: 'b1_2', x: 50, y: 50, type: 'food', label: 'Буфет' },
+          { id: 'stair_base_1', x: 40, y: 70, type: 'stairs', label: 'Лестница в подвал' }
+        ],
+        edges: [
+          ['b1_1', 'b1_2'],
+          ['b1_2', 'stair_base_1']
+        ]
+      }
     };
 
-    // Функция отрисовки маркеров
-    function renderMarkers(floorImage) {
-      markersLayer.innerHTML = ''; // Очищаем старые маркеры
-      const markers = floorsData[floorImage] || [];
+    // Межэтажная связь (Лестницы)
+    // Если пользователь выбирает точки на разных этажах, система автоматически добавит эти узлы в маршрут
+    const interFloorLinks = [
+      { from: 'stair_up_1', to: 'stair_down_2', floors: ['plan_1.png', 'plan_2.png'] },
+      { from: 'stair_down_2', to: 'stair_up_1', floors: ['plan_2.png', 'plan_1.png'] }
+    ];
 
-      markers.forEach(marker => {
+    // --- ИНИЦИАЛИЗАЦИЯ ---
+    const img = document.getElementById('plan-image');
+    const markersLayer = document.getElementById('markers-layer');
+    const canvas = document.getElementById('route-canvas');
+    const ctx = canvas.getContext('2d');
+    const userMarker = document.getElementById('user-marker');
+    const floorSelect = document.getElementById('floor-select');
+    const startInput = document.getElementById('start-input');
+    const endInput = document.getElementById('end-input');
+    const btnRoute = document.getElementById('btn-route');
+    const status = document.getElementById('status');
+    const datalist = document.getElementById('all-nodes-list');
+
+    let currentFloor = 'plan_1.png';
+    let allNodesMap = {}; // Быстрый поиск узла по ID
+
+    function init() {
+      // Заполняем автодополнение
+      datalist.innerHTML = '';
+      Object.values(floorsData).forEach(floor => {
+        floor.nodes.forEach(node => {
+          const opt = document.createElement('option');
+          opt.value = node.label;
+          datalist.appendChild(opt);
+        });
+      });
+
+      renderFloor(currentFloor);
+    }
+
+    // --- ОТРИСОВКА ---
+    function renderFloor(floorKey) {
+      currentFloor = floorKey;
+      img.src = floorKey;
+      markersLayer.innerHTML = '';
+      clearRoute();
+      
+      const floor = floorsData[floorKey];
+      allNodesMap = {};
+
+      floor.nodes.forEach(node => {
+        allNodesMap[node.id] = node;
         const el = document.createElement('div');
-        el.className = `marker type-${marker.type}`;
-        el.style.left = marker.x + '%';
-        el.style.top = marker.y + '%';
-        el.textContent = marker.text;
-        
-        // Всплывающая подсказка при наведении (опционально)
-        el.title = marker.text; 
-        
+        el.className = `marker type-${node.type}`;
+        el.style.left = node.x + '%';
+        el.style.top = node.y + '%';
+        el.textContent = node.label.split(' ')[0]; // Показываем только первое слово на точке
+        el.title = node.label; // Полное название при наведении
         markersLayer.appendChild(el);
       });
     }
 
-    // Обработка смены этажа
     floorSelect.addEventListener('change', (e) => {
-      const selectedImage = e.target.value;
-      status.textContent = `Загружен план: ${selectedImage}`;
-      
-      // Меняем src картинки
-      img.src = selectedImage;
-      
-      // Перерисовываем маркеры
-      renderMarkers(selectedImage);
-      
-      // Скрываем GPS маркер при смене этажа
-      userMarker.style.display = 'none';
+      renderFloor(e.target.value);
     });
 
-    // Логика GPS
-    btnGps.addEventListener('click', () => {
-      status.textContent = 'Запрос доступа к геолокации...';
-      
-      if (!navigator.geolocation) {
-        status.textContent = 'Геолокация не поддерживается.';
+    // --- ПОИСК ПУТИ (Упрощенный BFS) ---
+    function findPath(startLabel, endLabel) {
+      const startNode = findNodeByLabel(startLabel);
+      const endNode = findNodeByLabel(endLabel);
+
+      if (!startNode || !endNode) {
+        status.textContent = 'Не удалось найти такую точку.';
+        return null;
+      }
+
+      // Если этажи разные, нужно строить сложный маршрут
+      const currentFloorKey = floorSelect.value;
+      const targetFloorKey = getFloorOfNode(endNode.id); // Нужно определить этаж конечной точки
+
+      if (currentFloorKey !== targetFloorKey) {
+        // Ищем ближайшую лестницу на текущем этаже
+        const stairNode = findNearestStair(startNode.id, currentFloorKey);
+        if (!stairNode) {
+          status.textContent = 'На этом этаже нет лестницы для перехода.';
+          return null;
+        }
+        
+        // Формируем путь: Старт -> Лестница (этаж 1) -> Лестница (этаж 2) -> Финиш
+        // Для простоты демо мы просто покажем линию до лестницы, а потом скажем, что нужно перейти
+        // Но чтобы было красиво, сделаем эмуляцию: рисуем до лестницы, потом меняем этаж и рисуем дальше
+        
+        status.textContent = `Маршрут проходит через лестницу! Сначала дойдите до "${stairNode.label}", затем перейдите на ${targetFloorKey.replace('plan_', '').replace('.png', '')} этаж.`;
+        drawRoute([startNode, stairNode]);
         return;
       }
 
-      navigator.geolocation.getCurrentPosition(
-        (position) => {
-          status.textContent = 'Местоположение определено!';
-          
-          // ВАЖНО: На школьном плане GPS координаты не работают напрямую.
-          // Здесь мы просто ставим маркер в случайную точку для ДЕМОСТРАЦИИ работы функции.
-          const randomX = Math.random() * 100;
-          const randomY = Math.random() * 100;
+      // Если этажи одинаковые - обычный поиск
+      return bfs(startNode.id, endNode.id, floorsData[currentFloorKey].edges);
+    }
 
-          userMarker.style.left = randomX + '%';
-          userMarker.style.top = randomY + '%';
-          userMarker.style.display = 'block';
-        },
-        (error) => {
-          let msg = 'Ошибка: ';
-          if (error.code === error.PERMISSION_DENIED) msg += 'Доступ запрещен пользователем.';
-          else if (error.code === error.POSITION_UNAVAILABLE) msg += 'Данные недоступны.';
-          else msg += 'Неизвестная ошибка.';
-          status.textContent = msg;
-        }
-      );
-    });
+    function bfs(startId, endId, edges) {
+      const visited = new Set();
+      const queue = [[startId]]; // Очередь путей
 
-    // Первоначальная отрисовка
-    renderMarkers('plan_1.png');
-  </script>
-</body>
-</html>
+      while (queue.length > 0) {
+        const path = queue.shift();
+        const currentId = path[path.length - 1];
+
+        if (currentId === endId) return path;
+
+        if (visited.has(currentId)) continue;
+        visited.add(currentId);
+
+        // Находим соседей
+        const neighbors = edges.filter(e => e.includes(currentId)).map(e => e[0] === currentId ? e[1] : e[0]);
+        
+        neighbors.forEach(neighbor => {
+          if (!visited.has(neighbor)) {
+            queue.push([...path, neighbor]);
+          }
+        });
+      }
+      return null;
+    }
+
+    function findNodeByLabel(label) {
+      for (const floorKey in floorsData) {
+        const node = floorsData[floorKey].nodes.find(n => n.label === label);
+        if (node) return node;
+      }
+      return null;
+    }
+
+    function getFloorOfNode(nodeId) {
+      for (const key in floorsData) {
+        if (floorsData[key].nodes.some(n => n.id === nodeId)) return key;
+      }
+      return null;
+    }
+
+    function findNearestStair(nodeId, floorKey) {
+      const floorData = floorsData[floorKey];
+      const node = allNodesMap[nodeId];
+      // В рамках демо просто берем первую лестницу на этаже (в реальности тут был бы расчет дистанции)
+      return floorData.nodes.find(n => n.type === 'stairs');
+    }
+
+    // --- ОТРИСОВКА ЛИНИЙ ---
+    function drawRoute(pathNodes) {
+      clearRoute();
+      if (!pathNodes || pathNodes.length < 2) return;
+
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      ctx.beginPath();
+      
+      // Переводим проценты в пиксели относительно текущего размера картинки
+      const imgRect = img.getBoundingClientRect();
+      const scaleX = imgRect.width / 100;
+      const scaleY = imgRect.height / 100;
+
+      pathNodes.forEach((node, index) => {
+        const px = node.x * scaleX;
+        const py = node.y * scaleY;
+        
+        if (index === 0) ctx.moveTo(px, py);
+        else
