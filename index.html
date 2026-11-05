@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Карта школы: Умная навигация</title>
+  <title>Карта школы: Навигация с маршрутами</title>
   <style>
     body { margin: 0; padding: 0; font-family: 'Segoe UI', sans-serif; background: #f0f2f5; }
     
@@ -11,8 +11,8 @@
       background: #2c3e50; color: white; padding: 15px 20px; display: flex; justify-content: space-between; align-items: center;
       box-shadow: 0 2px 5px rgba(0,0,0,0.2);
     }
-    .controls { display: flex; gap: 10px; align-items: center; }
-    select, input { padding: 8px 12px; font-size: 16px; border-radius: 4px; border: none; cursor: pointer; }
+    .controls { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+    select, input { padding: 8px 12px; font-size: 16px; border-radius: 4px; border: none; }
     button { padding: 10px 20px; font-size: 14px; background: #e74c3c; color: white; border: none; border-radius: 4px; cursor: pointer; }
     button:hover { background: #c0392b; }
 
@@ -21,7 +21,6 @@
       background-color: #ddd; overflow: hidden; border-radius: 8px; box-shadow: 0 4px 10px rgba(0,0,0,0.1);
     }
 
-    /* Холст для отрисовки линий маршрутов */
     canvas {
       position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 5; pointer-events: none;
     }
@@ -32,7 +31,7 @@
       position: absolute; padding: 6px 10px; font-size: 13px; font-weight: bold; cursor: pointer;
       border-radius: 4px; transform: translate(-50%, -50%); box-shadow: 0 2px 4px rgba(0,0,0,0.3); color: #333; z-index: 10;
     }
-    /* Цвета */
+    /* Цвета маркеров */
     .type-class { background: rgba(52, 152, 219, 0.9); color: white; }
     .type-sport { background: rgba(142, 68, 173, 0.9); color: white; }
     .type-food { background: rgba(241, 196, 15, 0.9); color: #333; }
@@ -41,9 +40,9 @@
     .type-stairs { background: rgba(95, 158, 160, 0.9); color: white; border: 2px dashed white; } /* Лестница */
 
     .route-line {
-      stroke: #e74c3c; stroke-width: 4; fill: none; stroke-dasharray: 5,5; animation: dash 1s linear infinite;
+      stroke: #e74c3c; stroke-width: 4; fill: none; stroke-dasharray: 8,8; animation: dash 1s linear infinite;
     }
-    @keyframes dash { to { stroke-dashoffset: -10; } }
+    @keyframes dash { to { stroke-dashoffset: -16; } }
 
     .user-location {
       position: absolute; width: 24px; height: 24px;
@@ -66,8 +65,8 @@
         <option value="plan_basement.png">Подвал</option>
       </select>
       
-      <input type="text" id="start-input" placeholder="Откуда (кабинет)" list="all-nodes-list" style="width:150px;" />
-      <input type="text" id="end-input" placeholder="Куда (кабинет)" list="all-nodes-list" style="width:150px;" />
+      <input type="text" id="start-input" placeholder="Откуда" list="all-nodes-list" style="width:140px;" />
+      <input type="text" id="end-input" placeholder="Куда" list="all-nodes-list" style="width:140px;" />
       <button id="btn-route">🧭 Построить маршрут</button>
     </div>
   </header>
@@ -81,15 +80,10 @@
 
   <p id="status" class="status-msg"></p>
 
-  <!-- Список всех точек для автодополнения -->
-  <datalist id="all-nodes-list">
-    <!-- Заполняется JS -->
-  </datalist>
+  <datalist id="all-nodes-list"></datalist>
 
   <script>
-    // --- КОНФИГУРАЦИЯ ГРАФА (Это сердце навигации) ---
-    // Каждая точка имеет: id, x, y (в %), type, label.
-    // Связи задаются ниже в edges.
+    // --- КОНФИГУРАЦИЯ ГРАФА (КОРИДОРЫ И КОМНАТЫ) ---
     const floorsData = {
       'plan_1.png': {
         nodes: [
@@ -97,14 +91,14 @@
           { id: 'n1_2', x: 30, y: 40, type: 'class', label: 'Кабинет 102' },
           { id: 'n1_3', x: 50, y: 60, type: 'food', label: 'Столовая' },
           { id: 'n1_4', x: 85, y: 30, type: 'exit', label: 'Запасной выход' },
-          { id: 'stair_up_1', x: 70, y: 75, type: 'stairs', label: 'Лестница на 2 этаж' } // Точка перехода
+          { id: 'stair_up_1', x: 70, y: 75, type: 'stairs', label: 'Лестница на 2 этаж' }
         ],
-        edges: [ // Соединения (коридоры)
+        edges: [ // Коридоры (связи между точками)
           ['n1_1', 'n1_2'],
           ['n1_2', 'n1_3'],
           ['n1_3', 'n1_4'],
-          ['n1_2', 'stair_up_1'], // Коридор к лестнице
-          ['stair_up_1', 'n1_3']  // Коридор от лестницы
+          ['n1_2', 'stair_up_1'],
+          ['stair_up_1', 'n1_3']
         ]
       },
       'plan_2.png': {
@@ -112,7 +106,7 @@
           { id: 'n2_1', x: 45, y: 35, type: 'lib', label: 'Библиотека' },
           { id: 'n2_2', x: 60, y: 55, type: 'class', label: 'Кабинет 205' },
           { id: 'n2_3', x: 25, y: 80, type: 'sport', label: 'Спортзал' },
-          { id: 'stair_down_2', x: 70, y: 75, type: 'stairs', label: 'Лестница с 1 этажа' } // Точка входа
+          { id: 'stair_down_2', x: 70, y: 75, type: 'stairs', label: 'Лестница с 1 этажа' }
         ],
         edges: [
           ['n2_1', 'n2_2'],
@@ -133,8 +127,6 @@
       }
     };
 
-    // Межэтажная связь (Лестницы)
-    // Если пользователь выбирает точки на разных этажах, система автоматически добавит эти узлы в маршрут
     const interFloorLinks = [
       { from: 'stair_up_1', to: 'stair_down_2', floors: ['plan_1.png', 'plan_2.png'] },
       { from: 'stair_down_2', to: 'stair_up_1', floors: ['plan_2.png', 'plan_1.png'] }
@@ -154,7 +146,7 @@
     const datalist = document.getElementById('all-nodes-list');
 
     let currentFloor = 'plan_1.png';
-    let allNodesMap = {}; // Быстрый поиск узла по ID
+    let allNodesMap = {};
 
     function init() {
       // Заполняем автодополнение
@@ -166,11 +158,9 @@
           datalist.appendChild(opt);
         });
       });
-
       renderFloor(currentFloor);
     }
 
-    // --- ОТРИСОВКА ---
     function renderFloor(floorKey) {
       currentFloor = floorKey;
       img.src = floorKey;
@@ -186,67 +176,68 @@
         el.className = `marker type-${node.type}`;
         el.style.left = node.x + '%';
         el.style.top = node.y + '%';
-        el.textContent = node.label.split(' ')[0]; // Показываем только первое слово на точке
-        el.title = node.label; // Полное название при наведении
+        el.textContent = node.label.split(' ')[0];
+        el.title = node.label;
         markersLayer.appendChild(el);
       });
     }
 
-    floorSelect.addEventListener('change', (e) => {
-      renderFloor(e.target.value);
-    });
+    floorSelect.addEventListener('change', (e) => renderFloor(e.target.value));
 
-    // --- ПОИСК ПУТИ (Упрощенный BFS) ---
+    // --- ПОИСК ПУТИ (BFS) ---
     function findPath(startLabel, endLabel) {
       const startNode = findNodeByLabel(startLabel);
       const endNode = findNodeByLabel(endLabel);
 
       if (!startNode || !endNode) {
-        status.textContent = 'Не удалось найти такую точку.';
+        status.textContent = 'Не удалось найти такую точку. Проверьте название.';
         return null;
       }
 
-      // Если этажи разные, нужно строить сложный маршрут
       const currentFloorKey = floorSelect.value;
-      const targetFloorKey = getFloorOfNode(endNode.id); // Нужно определить этаж конечной точки
+      const targetFloorKey = getFloorOfNode(endNode.id);
 
+      // Межэтажная навигация
       if (currentFloorKey !== targetFloorKey) {
-        // Ищем ближайшую лестницу на текущем этаже
         const stairNode = findNearestStair(startNode.id, currentFloorKey);
         if (!stairNode) {
           status.textContent = 'На этом этаже нет лестницы для перехода.';
           return null;
         }
         
-        // Формируем путь: Старт -> Лестница (этаж 1) -> Лестница (этаж 2) -> Финиш
-        // Для простоты демо мы просто покажем линию до лестницы, а потом скажем, что нужно перейти
-        // Но чтобы было красиво, сделаем эмуляцию: рисуем до лестницы, потом меняем этаж и рисуем дальше
-        
-        status.textContent = `Маршрут проходит через лестницу! Сначала дойдите до "${stairNode.label}", затем перейдите на ${targetFloorKey.replace('plan_', '').replace('.png', '')} этаж.`;
+        status.textContent = `Маршрут проходит через лестницу! Сначала дойдите до "${stairNode.label}", затем перейдите на нужный этаж и продолжайте путь.`;
         drawRoute([startNode, stairNode]);
         return;
       }
 
-      // Если этажи одинаковые - обычный поиск
-      return bfs(startNode.id, endNode.id, floorsData[currentFloorKey].edges);
+      // Внутриэтажная навигация
+      const pathIds = bfs(startNode.id, endNode.id, floorsData[currentFloorKey].edges);
+      if (!pathIds) {
+        status.textContent = 'Маршрут не найден (нет прохода между этими точками).';
+        return null;
+      }
+
+      const pathNodes = pathIds.map(id => allNodesMap[id]);
+      drawRoute(pathNodes);
+      status.textContent = 'Маршрут построен по коридорам.';
     }
 
     function bfs(startId, endId, edges) {
       const visited = new Set();
-      const queue = [[startId]]; // Очередь путей
+      const queue = [[startId]];
 
       while (queue.length > 0) {
         const path = queue.shift();
         const currentId = path[path.length - 1];
 
         if (currentId === endId) return path;
-
         if (visited.has(currentId)) continue;
         visited.add(currentId);
 
-        // Находим соседей
-        const neighbors = edges.filter(e => e.includes(currentId)).map(e => e[0] === currentId ? e[1] : e[0]);
-        
+        const neighbors = edges
+          .filter(e => e.includes(currentId))
+          .map(e => e[0] === currentId ? e[1] : e[0]);
+
         neighbors.forEach(neighbor => {
           if (!visited.has(neighbor)) {
             queue.push([...path, neighbor]);
@@ -272,28 +263,44 @@
     }
 
     function findNearestStair(nodeId, floorKey) {
-      const floorData = floorsData[floorKey];
-      const node = allNodesMap[nodeId];
-      // В рамках демо просто берем первую лестницу на этаже (в реальности тут был бы расчет дистанции)
-      return floorData.nodes.find(n => n.type === 'stairs');
+      return floorsData[floorKey].nodes.find(n => n.type === 'stairs');
     }
 
-    // --- ОТРИСОВКА ЛИНИЙ ---
-    function drawRoute(pathNodes) {
+    // --- ОТРИСОВКА МАРШРУТА ---
+    function drawRoute(nodes) {
       clearRoute();
-      if (!pathNodes || pathNodes.length < 2) return;
+      if (!nodes || nodes.length < 2) return;
 
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
-      ctx.beginPath();
-      
-      // Переводим проценты в пиксели относительно текущего размера картинки
       const imgRect = img.getBoundingClientRect();
       const scaleX = imgRect.width / 100;
       const scaleY = imgRect.height / 100;
 
-      pathNodes.forEach((node, index) => {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      ctx.beginPath();
+
+      nodes.forEach((node, index) => {
         const px = node.x * scaleX;
         const py = node.y * scaleY;
-        
+
         if (index === 0) ctx.moveTo(px, py);
-        else
+        else ctx.lineTo(px, py);
+      });
+
+      ctx.strokeStyle = '#e74c3c';
+      ctx.lineWidth = 4;
+      ctx.setLineDash([8, 8]);
+      ctx.stroke();
+    }
+
+    function clearRoute() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+    }
+
+    btnRoute.addEventListener('click', () => {
+      findPath(startInput.value, endInput.value);
+    });
+
+    init();
+  </script>
+</body>
+</html>
