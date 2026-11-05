@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Карта школы: Навигация с маршрутами</title>
+  <title>Карта школы: Умная навигация</title>
   <style>
     body { margin: 0; padding: 0; font-family: 'Segoe UI', sans-serif; background: #f0f2f5; }
     
@@ -15,6 +15,8 @@
     select, input { padding: 8px 12px; font-size: 16px; border-radius: 4px; border: none; }
     button { padding: 10px 20px; font-size: 14px; background: #e74c3c; color: white; border: none; border-radius: 4px; cursor: pointer; }
     button:hover { background: #c0392b; }
+    button.btn-gps { background: #3498db; }
+    button.btn-gps:hover { background: #2980b9; }
 
     #map-container {
       position: relative; width: 100%; max-width: 900px; margin: 20px auto;
@@ -38,11 +40,6 @@
     .type-lib { background: rgba(46, 204, 113, 0.9); color: white; }
     .type-exit { background: rgba(230, 126, 34, 0.9); color: white; }
     .type-stairs { background: rgba(95, 158, 160, 0.9); color: white; border: 2px dashed white; } /* Лестница */
-
-    .route-line {
-      stroke: #e74c3c; stroke-width: 4; fill: none; stroke-dasharray: 8,8; animation: dash 1s linear infinite;
-    }
-    @keyframes dash { to { stroke-dashoffset: -16; } }
 
     .user-location {
       position: absolute; width: 24px; height: 24px;
@@ -68,6 +65,7 @@
       <input type="text" id="start-input" placeholder="Откуда" list="all-nodes-list" style="width:140px;" />
       <input type="text" id="end-input" placeholder="Куда" list="all-nodes-list" style="width:140px;" />
       <button id="btn-route">🧭 Построить маршрут</button>
+      <button id="btn-gps" class="btn-gps">📍 Моё местоположение</button>
     </div>
   </header>
 
@@ -93,7 +91,7 @@
           { id: 'n1_4', x: 85, y: 30, type: 'exit', label: 'Запасной выход' },
           { id: 'stair_up_1', x: 70, y: 75, type: 'stairs', label: 'Лестница на 2 этаж' }
         ],
-        edges: [ // Коридоры (связи между точками)
+        edges: [
           ['n1_1', 'n1_2'],
           ['n1_2', 'n1_3'],
           ['n1_3', 'n1_4'],
@@ -127,11 +125,6 @@
       }
     };
 
-    const interFloorLinks = [
-      { from: 'stair_up_1', to: 'stair_down_2', floors: ['plan_1.png', 'plan_2.png'] },
-      { from: 'stair_down_2', to: 'stair_up_1', floors: ['plan_2.png', 'plan_1.png'] }
-    ];
-
     // --- ИНИЦИАЛИЗАЦИЯ ---
     const img = document.getElementById('plan-image');
     const markersLayer = document.getElementById('markers-layer');
@@ -142,25 +135,27 @@
     const startInput = document.getElementById('start-input');
     const endInput = document.getElementById('end-input');
     const btnRoute = document.getElementById('btn-route');
+    const btnGps = document.getElementById('btn-gps');
     const status = document.getElementById('status');
     const datalist = document.getElementById('all-nodes-list');
 
     let currentFloor = 'plan_1.png';
     let allNodesMap = {};
+    let userPos = null; // {x, y} в процентах
 
     function init() {
-      // Заполняем автодополнение
+      // Заполняем автодополнение с указанием этажа
       datalist.innerHTML = '';
-      Object.values(floorsData).forEach(floor => {
+      Object.entries(floorsData).forEach(([floorKey, floor]) => {
+        const floorName = floorKey.replace('plan_', '').replace('_', ' ').replace('.png', '');
         floor.nodes.forEach(node => {
           const opt = document.createElement('option');
-          opt.value = node.label;
+          opt.value = `${node.label} (${floorName})`;
           datalist.appendChild(opt);
         });
       });
       renderFloor(currentFloor);
     }
-
     function renderFloor(floorKey) {
       currentFloor = floorKey;
       img.src = floorKey;
@@ -178,19 +173,60 @@
         el.style.top = node.y + '%';
         el.textContent = node.label.split(' ')[0];
         el.title = node.label;
+        
+        // Клик по комнате: сразу предлагает маршрут
+        el.addEventListener('click', () => {
+          if (userPos) {
+            const floorName = floorKey.replace('plan_', '').replace('.png', '');
+            startInput.value = `Моё местоположение (${floorName})`;
+            endInput.value = node.label;
+            findPath(startInput.value, endInput.value);
+          } else {
+            endInput.value = node.label;
+            status.textContent = `Вы выбрали: ${node.label}. Укажите точку старта и нажмите «Построить маршрут».`;
+          }
+        });
+
         markersLayer.appendChild(el);
       });
+
+      if (userPos) {
+        userMarker.style.display = 'block';
+        updateUserMarker();
+      } else {
+        userMarker.style.display = 'none';
+      }
     }
 
     floorSelect.addEventListener('change', (e) => renderFloor(e.target.value));
 
     // --- ПОИСК ПУТИ (BFS) ---
     function findPath(startLabel, endLabel) {
-      const startNode = findNodeByLabel(startLabel);
+      let startNode = findNodeByLabel(startLabel);
       const endNode = findNodeByLabel(endLabel);
 
-      if (!startNode || !endNode) {
-        status.textContent = 'Не удалось найти такую точку. Проверьте название.';
+      if (!endNode) {
+        status.textContent = 'Не удалось найти конечную точку. Проверьте название.';
+        return null;
+      }
+
+      // Обработка «Моё местоположение» как старта
+      if (startLabel.includes('Моё местоположение')) {
+        if (!userPos) {
+          status.textContent = 'Сначала нажмите «Моё местоположение», чтобы задать стартовую точку.';
+          return null;
+        }
+        startNode = {
+          id: 'user_pos',
+          x: userPos.x,
+          y: userPos.y,
+          type: 'exit',
+          label: 'Моё местоположение'
+        };
+      }
+
+      if (!startNode) {
+        status.textContent = 'Не удалось найти точку старта. Проверьте название.';
         return null;
       }
 
@@ -248,8 +284,9 @@
     }
 
     function findNodeByLabel(label) {
+      const cleanLabel = label.replace(/\s*\([^)]*\)$/, '');
       for (const floorKey in floorsData) {
-        const node = floorsData[floorKey].nodes.find(n => n.label === label);
+        const node = floorsData[floorKey].nodes.find(n => n.label === cleanLabel);
         if (node) return node;
       }
       return null;
@@ -265,42 +302,22 @@
     function findNearestStair(nodeId, floorKey) {
       return floorsData[floorKey].nodes.find(n => n.type === 'stairs');
     }
+    // --- ГЕОЛОКАЦИЯ (ДЕМО) ---
+    btnGps.addEventListener('click', () => {
+      status.textContent = 'Запрос доступа к геолокации...';
+      
+      if (!navigator.geolocation) {
+        status.textContent = 'Геолокация не поддерживается в этом браузере.';
+        // Для демонстрации ставим случайную точку на текущем этаже
+        setDemoLocation();
+        return;
+      }
 
-    // --- ОТРИСОВКА МАРШРУТА ---
-    function drawRoute(nodes) {
-      clearRoute();
-      if (!nodes || nodes.length < 2) return;
-
-      const imgRect = img.getBoundingClientRect();
-      const scaleX = imgRect.width / 100;
-      const scaleY = imgRect.height / 100;
-
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
-      ctx.beginPath();
-
-      nodes.forEach((node, index) => {
-        const px = node.x * scaleX;
-        const py = node.y * scaleY;
-
-        if (index === 0) ctx.moveTo(px, py);
-        else ctx.lineTo(px, py);
-      });
-
-      ctx.strokeStyle = '#e74c3c';
-      ctx.lineWidth = 4;
-      ctx.setLineDash([8, 8]);
-      ctx.stroke();
-    }
-
-    function clearRoute() {
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
-    }
-
-    btnRoute.addEventListener('click', () => {
-      findPath(startInput.value, endInput.value);
-    });
-
-    init();
-  </script>
-</body>
-</html>
+      navigator.geolocation.getCurrentPosition(
+        (position) => {
+          // В реальном проекте тут можно конвертировать координаты в пиксели/проценты.
+          // Для школьного проекта делаем упрощённо: ставим точку в случайном месте на этаже.
+          setDemoLocation();
+        },
+        () => {
+          status.textContent = 'Доступ к геолокации запрещён. Включаем демо-режим.
